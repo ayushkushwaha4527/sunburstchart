@@ -2,84 +2,81 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<title>D3 Sunburst (API)</title>
+<title>D3 Sunburst + Table + Excel Export</title>
+
 <script src="https://d3js.org/d3.v7.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
 
 <style>
-  body {
-    font-family: "Segoe UI", Arial, sans-serif;
-    text-align: center;
-    background: #fafafa;
-  }
+body {
+  font-family: "Segoe UI", Arial, sans-serif;
+  background: #fafafa;
+  text-align: center;
+}
 
-  h3 {
-    margin-bottom: 5px;
-  }
+h3 { margin-bottom: 5px; }
+#breadcrumb { font-weight: 600; margin-bottom: 12px; }
 
-  #breadcrumb {
-    color: #555;
-    margin-bottom: 15px;
-  }
+svg { width: 600px; height: 600px; }
 
-  svg {
-    width: 600px;
-    height: 600px;
-    cursor: pointer;
-  }
+path { cursor: pointer; }
+path:hover { opacity: 0.85; }
 
-  text {
-    font-size: 11px;
-    font-weight: 600;
-    pointer-events: none;
-    paint-order: stroke;
-    stroke: #fff;
-    stroke-width: 3px;
-    stroke-linejoin: round;
-  }
+text {
+  font-size: 11px;
+  font-weight: 600;
+  pointer-events: none;
+  paint-order: stroke;
+  stroke: #fff;
+  stroke-width: 3px;
+}
 
-  path {
-    transition: opacity 0.2s;
-  }
+button {
+  padding: 8px 14px;
+  background: #0078d4;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  margin-bottom: 10px;
+}
 
-  path:hover {
-    opacity: 0.8;
-  }
+table {
+  width: 70%;
+  margin: 20px auto;
+  border-collapse: collapse;
+  background: #fff;
+}
 
-  table {
-    margin: 20px auto;
-    border-collapse: collapse;
-    width: 70%;
-    background: #fff;
-  }
+th, td {
+  border: 1px solid #ddd;
+  padding: 8px;
+  font-size: 13px;
+}
 
-  th, td {
-    padding: 6px;
-    border: 1px solid #ddd;
-  }
-
-  th {
-    background: #f0f0f0;
-  }
+th { background: #f3f3f3; }
 </style>
 </head>
 
 <body>
 
 <h3>Sunburst Chart (API Data)</h3>
-<h4 id="breadcrumb">Selected: ALL</h4>
+<div id="breadcrumb">Selected: ALL</div>
 
 <svg></svg>
 
+<button id="downloadExcel">⬇ Download Excel</button>
+
 <table>
-  <thead>
-    <tr>
-      <th>Day</th>
-      <th>Time</th>
-      <th>Gender</th>
-      <th>Value</th>
-    </tr>
-  </thead>
-  <tbody id="table-body"></tbody>
+<thead>
+<tr>
+<th>Day</th>
+<th>Time</th>
+<th>Gender</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody id="table-body"></tbody>
 </table>
 
 <script>
@@ -89,137 +86,159 @@ fetch("http://localhost:3000/api/sunburst")
 
 function init(rawData) {
 
-  /* ================= TABLE (UNCHANGED) ================= */
-  function updateTable(filters = {}) {
-    const tbody = document.getElementById("table-body");
-    tbody.innerHTML = "";
+let currentTableData = [];
 
-    rawData.filter(d =>
-      (!filters.day || d.day === filters.day) &&
-      (!filters.time || d.time === filters.time) &&
-      (!filters.sex || d.sex === filters.sex)
-    ).forEach(d => {
-      tbody.innerHTML += `
-        <tr>
-          <td>${d.day}</td>
-          <td>${d.time}</td>
-          <td>${d.sex}</td>
-          <td>${d.value}</td>
-        </tr>`;
-    });
-  }
-  updateTable();
+/* ================= TABLE ================= */
+function updateTable(filters = {}) {
+  const tbody = document.getElementById("table-body");
+  tbody.innerHTML = "";
 
-  /* ================= HIERARCHY (UNCHANGED) ================= */
-  const data = {
-    name: "ALL",
-    children: d3.rollups(
-      rawData,
-      v => d3.sum(v, d => d.value),
-      d => d.day,
-      d => d.time,
-      d => d.sex
-    ).map(([day, times]) => ({
-      name: day,
-      children: times.map(([time, sexes]) => ({
-        name: time,
-        children: sexes.map(([sex, value]) => ({
-          name: sex,
-          value
-        }))
+  currentTableData = rawData.filter(d =>
+    (!filters.day || d.day === filters.day) &&
+    (!filters.time || d.time === filters.time) &&
+    (!filters.sex || d.sex === filters.sex)
+  );
+
+  currentTableData.forEach(d => {
+    tbody.innerHTML += `
+      <tr>
+        <td>${d.day}</td>
+        <td>${d.time}</td>
+        <td>${d.sex}</td>
+        <td>${d.value}</td>
+      </tr>`;
+  });
+}
+updateTable();
+
+/* ================= DATA HIERARCHY ================= */
+const data = {
+  name: "ALL",
+  children: d3.rollups(
+    rawData,
+    v => d3.sum(v, d => d.value),
+    d => d.day,
+    d => d.time,
+    d => d.sex
+  ).map(([day, times]) => ({
+    name: day,
+    children: times.map(([time, sexes]) => ({
+      name: time,
+      children: sexes.map(([sex, value]) => ({
+        name: sex,
+        value
       }))
     }))
-  };
+  }))
+};
 
-  /* ================= SUNBURST FIX ================= */
-  const width = 600;
-  const radius = width / 2;
-  const ring = radius / 4; // FIXED DEPTH RINGS
+/* ================= SUNBURST ================= */
+const width = 600;
+const radius = width / 2;
+const ring = radius / 4;
 
-  const svg = d3.select("svg")
-    .attr("viewBox", `${-radius} ${-radius} ${width} ${width}`)
-    .append("g");
+const svg = d3.select("svg")
+  .attr("viewBox", `${-radius} ${-radius} ${width} ${width}`)
+  .append("g");
 
-  const color = d3.scaleOrdinal(d3.schemeTableau10);
+const color = d3.scaleOrdinal(d3.schemeTableau10);
 
-  const root = d3.hierarchy(data)
-    .sum(d => d.value)
-    .sort((a, b) => b.value - a.value);
+const root = d3.hierarchy(data)
+  .sum(d => d.value);
 
-  d3.partition().size([2 * Math.PI, root.height + 1])(root);
+d3.partition().size([2 * Math.PI, root.height + 1])(root);
+root.each(d => d.current = d);
 
-  const arc = d3.arc()
-    .startAngle(d => d.x0)
-    .endAngle(d => d.x1)
-    .innerRadius(d => d.depth * ring)
-    .outerRadius(d => (d.depth + 1) * ring - 2);
+const arc = d3.arc()
+  .startAngle(d => d.x0)
+  .endAngle(d => d.x1)
+  .innerRadius(d => d.depth * ring)
+  .outerRadius(d => (d.depth + 1) * ring - 2);
 
-  /* ================= DRAW ================= */
-  const paths = svg.append("g")
-    .selectAll("path")
-    .data(root.descendants().slice(1))
-    .join("path")
-    .attr("fill", d => color(d.ancestors().map(d => d.data.name).reverse()[1]))
-    .attr("d", arc)
-    .on("click", clicked)
-    .append("title")
-    .text(d => `${d.data.name}: ${d.value}`);
+/* ================= PATHS ================= */
+const paths = svg.append("g")
+  .selectAll("path")
+  .data(root.descendants().slice(1))
+  .join("path")
+  .attr("fill", d => color(d.ancestors()[1]?.data.name))
+  .attr("d", d => arc(d.current))
+  .on("click", clicked);
 
-  const labels = svg.append("g")
-    .selectAll("text")
-    .data(root.descendants().slice(1))
-    .join("text")
-    .attr("transform", d => {
-      const [x, y] = arc.centroid(d);
-      return `translate(${x},${y})`;
-    })
-    .attr("text-anchor", "middle")
-    .attr("dy", "0.35em")
-    .style("font-size", "10px")
-    .style("opacity", d => (d.x1 - d.x0) > 0.15 ? 1 : 0)
-    .text(d => d.data.name);
+/* ================= LABELS ================= */
+const labels = svg.append("g")
+  .selectAll("text")
+  .data(root.descendants().slice(1))
+  .join("text")
+  .attr("text-anchor", "middle")
+  .attr("dy", "0.35em")
+  .attr("transform", d => `translate(${arc.centroid(d)})`)
+  .style("opacity", d => (d.x1 - d.x0) > 0.15 ? 1 : 0)
+  .text(d => d.data.name);
 
-  const center = svg.append("circle")
-    .attr("r", ring)
-    .attr("fill", "#f4f4f4")
-    .on("click", () => clicked(null, root));
+/* ================= CENTER ================= */
+const center = svg.append("circle")
+  .attr("r", ring)
+  .attr("fill", "#f2f2f2")
+  .style("cursor", "pointer")
+  .on("click", () => clicked(null, root));
 
-  /* ================= CLICK (FIXED ZOOM) ================= */
-  function clicked(event, p) {
+// ✅ NEW: center text
+const centerLabel = svg.append("text")
+  .attr("text-anchor", "middle")
+  .attr("dy", "0.35em")
+  .style("font-size", "14px")
+  .style("font-weight", "700")
+  .text("ALL");
 
-    const names = p.ancestors().reverse().map(d => d.data.name).slice(1);
-    document.getElementById("breadcrumb").innerText =
-      names.length ? "Selected: " + names.join(" / ") : "Selected: ALL";
+/* ================= CLICK / ZOOM ================= */
+function clicked(event, p) {
 
-    updateTable({
-      day: names[0],
-      time: names[1],
-      sex: names[2]
+  const names = p.ancestors().reverse().map(d => d.data.name).slice(1);
+
+  document.getElementById("breadcrumb").innerText =
+    names.length ? "Selected: " + names.join(" / ") : "Selected: ALL";
+
+  // ✅ NEW: update center label
+  centerLabel.text(names[names.length - 1] || "ALL");
+
+  updateTable({
+    day: names[0],
+    time: names[1],
+    sex: names[2]
+  });
+
+  root.each(d => {
+    d.target = {
+      x0: Math.max(0, Math.min(1, (d.x0 - p.x0) / (p.x1 - p.x0))) * 2 * Math.PI,
+      x1: Math.max(0, Math.min(1, (d.x1 - p.x0) / (p.x1 - p.x0))) * 2 * Math.PI,
+      depth: d.depth - p.depth
+    };
+  });
+
+  const t = svg.transition().duration(750);
+
+  paths.transition(t)
+    .attrTween("d", d => {
+      const i = d3.interpolate(d.current, d.target);
+      return t => arc(d.current = i(t));
     });
 
-    root.each(d => {
-      d.target = {
-        x0: Math.max(0, Math.min(1, (d.x0 - p.x0) / (p.x1 - p.x0))) * 2 * Math.PI,
-        x1: Math.max(0, Math.min(1, (d.x1 - p.x0) / (p.x1 - p.x0))) * 2 * Math.PI,
-        depth: d.depth - p.depth
-      };
-    });
+  labels.transition(t)
+    .attr("transform", d => `translate(${arc.centroid(d.target)})`)
+    .style("opacity", d => (d.target.x1 - d.target.x0) > 0.15 ? 1 : 0);
+}
 
-    const t = svg.transition().duration(750);
-
-    svg.selectAll("path").transition(t)
-      .attrTween("d", d => {
-        const i = d3.interpolate(d, d.target);
-        return t => arc(i(t));
-      });
-
-    labels.transition(t)
-      .attr("transform", d => {
-        const [x, y] = arc.centroid(d.target);
-        return `translate(${x},${y})`;
-      })
-      .style("opacity", d => (d.target.x1 - d.target.x0) > 0.15 ? 1 : 0);
+/* ================= EXCEL EXPORT ================= */
+document.getElementById("downloadExcel").onclick = () => {
+  if (!currentTableData.length) {
+    alert("No data to export");
+    return;
   }
+  const ws = XLSX.utils.json_to_sheet(currentTableData);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Sunburst Data");
+  XLSX.writeFile(wb, "sunburst-data.xlsx");
+};
 }
 </script>
 
